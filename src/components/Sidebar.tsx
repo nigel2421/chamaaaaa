@@ -171,6 +171,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
               );
             })}
           </div>
+
+          {/* Firebase Connection Footer Status */}
+          <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400 font-mono">
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span className="text-slate-300 font-semibold">Firebase Cloud</span>
+            </div>
+            <span className="text-[9px] text-slate-500 truncate max-w-[90px]" title="benaa-multipurpose">benaa</span>
+          </div>
         </div>
       </aside>
     </>

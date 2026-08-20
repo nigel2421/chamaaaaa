@@ -17,10 +17,13 @@ import {
   AttendanceMeeting, Expenditure, ChatMessage, Candidate, Penalty,
   ChamaTenant
 } from './types';
-import { Printer, X, Download, ShieldCheck, Menu } from 'lucide-react';
+import { Printer, X, Download, ShieldCheck, Menu, Database, Cloud } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { testFirebaseConnection, saveDocument, seedInitialDataIfEmpty, collections } from './lib/firebaseSync';
 
 export default function App() {
+  const [firebaseConnected, setFirebaseConnected] = useState<boolean | null>(null);
+
   // Load state from local storage or default
   const [tenants, setTenants] = useState<ChamaTenant[]>(() => {
     const saved = localStorage.getItem('sacco_tenants');
@@ -88,6 +91,26 @@ export default function App() {
   const [currentView, setCurrentView] = useState('Dashboard');
   const [showPrintConsole, setShowPrintConsole] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  // Initialize Firebase connection check & seed initial collections
+  useEffect(() => {
+    async function initFirebase() {
+      const isHealthy = await testFirebaseConnection();
+      setFirebaseConnected(isHealthy);
+      
+      // Auto-seed collections if new
+      try {
+        await seedInitialDataIfEmpty(collections.tenants, tenants, 'id');
+        await seedInitialDataIfEmpty(collections.members, members, 'id');
+        await seedInitialDataIfEmpty(collections.contributions, contributions, 'id');
+        await seedInitialDataIfEmpty(collections.loans, loans, 'id');
+        await seedInitialDataIfEmpty(collections.penalties, penalties, 'id');
+      } catch (err) {
+        console.warn('Firebase initial seed error:', err);
+      }
+    }
+    initFirebase();
+  }, []);
 
   // Derived config based on current tenant
   const activeTenant = currentTenantId === 'all'
@@ -172,6 +195,7 @@ export default function App() {
       joinedDate: new Date().toISOString().split('T')[0]
     };
     setMembers([...members, mem]);
+    saveDocument(collections.members, mem.id, mem);
   };
 
   const handleAddContribution = (newCon: Omit<Contribution, 'id' | 'date' | 'status' | 'approvedBy' | 'tenantId'>) => {
@@ -186,12 +210,16 @@ export default function App() {
       approvedBy: newCon.paymentMethod !== 'Cash' ? currentUser.id : undefined
     };
     setContributions([...contributions, con]);
+    saveDocument(collections.contributions, con.id, con);
   };
 
   const handleApproveContribution = (id: string, adminId: string) => {
-    setContributions(contributions.map(c => 
-      c.id === id ? { ...c, status: 'Approved', approvedBy: adminId } : c
-    ));
+    const updated = contributions.map(c => 
+      c.id === id ? { ...c, status: 'Approved' as const, approvedBy: adminId } : c
+    );
+    setContributions(updated);
+    const item = updated.find(c => c.id === id);
+    if (item) saveDocument(collections.contributions, id, item);
   };
 
   const handleApplyLoan = (newLoan: Omit<Loan, 'id' | 'status' | 'dateApplied' | 'repayments' | 'tenantId'>) => {
@@ -206,9 +234,11 @@ export default function App() {
       repayments: []
     };
     setLoans([...loans, loan]);
+    saveDocument(collections.loans, loan.id, loan);
   };
 
   const handleApproveLoan = (id: string) => {
+    let approvedLoan: Loan | undefined;
     setLoans(loans.map(l => {
       if (l.id !== id) return l;
       
@@ -228,17 +258,27 @@ export default function App() {
         });
       }
 
-      return {
+      const updated = {
         ...l,
-        status: 'Approved',
+        status: 'Approved' as const,
         dateApproved: new Date().toISOString().split('T')[0],
         repayments
       };
+      approvedLoan = updated;
+      return updated;
     }));
+    if (approvedLoan) saveDocument(collections.loans, id, approvedLoan);
   };
 
   const handleRejectLoan = (id: string) => {
-    setLoans(loans.map(l => l.id === id ? { ...l, status: 'Rejected' } : l));
+    setLoans(loans.map(l => {
+      if (l.id === id) {
+        const updated = { ...l, status: 'Rejected' as const };
+        saveDocument(collections.loans, id, updated);
+        return updated;
+      }
+      return l;
+    }));
   };
 
   const handleAddAgenda = (newAge: Omit<Agenda, 'id' | 'dateAdded' | 'memberFeelings' | 'tenantId'>) => {
@@ -251,6 +291,7 @@ export default function App() {
       memberFeelings: { urgent: 50, important: 50, keyStrategy: 50, needsMod: 10 }
     };
     setAgendas([...agendas, age]);
+    saveDocument(collections.agendas, age.id, age);
   };
 
   const handleVoteAgenda = (id: string, feeling: 'urgent' | 'important' | 'keyStrategy' | 'needsMod') => {
@@ -258,7 +299,9 @@ export default function App() {
       if (a.id !== id) return a;
       const f = { ...a.memberFeelings };
       f[feeling] = Math.min(100, f[feeling] + 5); // Add 5% per vote up to 100
-      return { ...a, memberFeelings: f };
+      const updated = { ...a, memberFeelings: f };
+      saveDocument(collections.agendas, id, updated);
+      return updated;
     }));
   };
 
@@ -296,14 +339,24 @@ export default function App() {
           status: 'Unpaid'
         };
         setPenalties(prev => [...prev, penalty]);
+        saveDocument(collections.penalties, penalty.id, penalty);
       }
 
-      return { ...m, records };
+      const updated = { ...m, records };
+      saveDocument(collections.meetings, meetingId, updated);
+      return updated;
     }));
   };
 
   const handlePayPenalty = (id: string) => {
-    setPenalties(penalties.map(p => p.id === id ? { ...p, status: 'Paid' } : p));
+    setPenalties(penalties.map(p => {
+      if (p.id === id) {
+        const updated = { ...p, status: 'Paid' as const };
+        saveDocument(collections.penalties, id, updated);
+        return updated;
+      }
+      return p;
+    }));
   };
 
   const handleCreatePenalty = (newPen: Omit<Penalty, 'id' | 'date' | 'status' | 'tenantId'>) => {
@@ -317,10 +370,18 @@ export default function App() {
       status: 'Unpaid'
     };
     setPenalties(prev => [...prev, penalty]);
+    saveDocument(collections.penalties, penalty.id, penalty);
   };
 
   const handleAdjournMeeting = (meetingId: string) => {
-    setMeetings(meetings.map(m => m.id === meetingId ? { ...m, adjourned: true } : m));
+    setMeetings(meetings.map(m => {
+      if (m.id === meetingId) {
+        const updated = { ...m, adjourned: true };
+        saveDocument(collections.meetings, meetingId, updated);
+        return updated;
+      }
+      return m;
+    }));
   };
 
   const handleAddExpenditure = (newExp: Omit<Expenditure, 'id' | 'date' | 'status' | 'tenantId'>) => {
@@ -333,17 +394,25 @@ export default function App() {
       status: 'Completed'
     };
     setExpenditures([...expenditures, exp]);
+    saveDocument(collections.expenditures, exp.id, exp);
   };
 
   const handleUpdateConfig = (newConfig: GroupConfig) => {
-    setTenants(prev => prev.map(t => t.id === currentTenantId ? {
-      ...t,
-      name: newConfig.name,
-      vision: newConfig.vision,
-      lengoKuu: newConfig.lengoKuu,
-      adminCode: newConfig.adminCode,
-      constitution: newConfig.constitution
-    } : t));
+    setTenants(prev => prev.map(t => {
+      if (t.id === currentTenantId) {
+        const updated = {
+          ...t,
+          name: newConfig.name,
+          vision: newConfig.vision,
+          lengoKuu: newConfig.lengoKuu,
+          adminCode: newConfig.adminCode,
+          constitution: newConfig.constitution
+        };
+        saveDocument(collections.tenants, t.id, updated);
+        return updated;
+      }
+      return t;
+    }));
   };
 
   const handleCreateTenant = (newTenant: Omit<ChamaTenant, 'id' | 'createdDate'>) => {
@@ -353,6 +422,7 @@ export default function App() {
       createdDate: new Date().toISOString().split('T')[0]
     };
     setTenants(prev => [...prev, tenant]);
+    saveDocument(collections.tenants, tenant.id, tenant);
 
     // Create default Chairman for the new Chama so they have a starting official
     const chairman: Member = {
@@ -372,6 +442,7 @@ export default function App() {
     };
 
     setMembers(prev => [...prev, chairman]);
+    saveDocument(collections.members, chairman.id, chairman);
   };
 
   const handleSendMessage = (text: string, recipientId?: string) => {
@@ -387,17 +458,20 @@ export default function App() {
       recipientId
     };
     setChats([...chats, chat]);
+    saveDocument(collections.chats, chat.id, chat);
   };
 
   const handleVoteCandidate = (id: string, voterId: string) => {
     setCandidates(candidates.map(c => {
       if (c.id !== id) return c;
       if (c.voters.includes(voterId)) return c; // Standard 1 vote limit per post
-      return {
+      const updated = {
         ...c,
         votesCount: c.votesCount + 1,
         voters: [...c.voters, voterId]
       };
+      saveDocument(collections.candidates, id, updated);
+      return updated;
     }));
   };
 
@@ -473,6 +547,20 @@ export default function App() {
 
           {/* Right Side: Active User Info & Tenant Filter Dropdown & Quick Switch */}
           <div className="flex flex-wrap items-center gap-3 md:gap-4">
+            {/* Firebase Live Cloud Status Indicator */}
+            <div 
+              title="Connected to Firebase project: benaa-multipurpose (Firestore Database)"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[10px] font-bold shadow-2xs font-mono"
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <Cloud size={12} className="text-emerald-600" />
+              <span className="hidden sm:inline">benaa-multipurpose</span>
+              <span className="sm:hidden">Firebase</span>
+            </div>
+
             {/* Super Admin Tenant Dropdown in Header too! for ultra easy access */}
             {currentUser.role === 'Super Admin' && (
               <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-2xs">
