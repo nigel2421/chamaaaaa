@@ -1,0 +1,6 @@
+{
+  "name": "Chama App",
+  "description": "A comprehensive Chama & Sacco group financial management, agenda, loans, attendance, and member coordination platform.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
