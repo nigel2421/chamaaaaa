@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { GamifiedHeader } from './components/GamifiedHeader';
+import { MobileBottomNav } from './components/MobileBottomNav';
 import { SikuYaChamaHub } from './components/SikuYaChamaHub';
 import { MultiBucketLedger } from './components/MultiBucketLedger';
 import { LengoKuuView } from './components/LengoKuuView';
@@ -21,7 +22,7 @@ import {
   AttendanceMeeting, Expenditure, ChatMessage, Candidate, Penalty,
   ChamaTenant
 } from './types';
-import { Printer, X } from 'lucide-react';
+import { Printer, X, LayoutDashboard, Video, Wallet, Mail, Menu } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { testFirebaseConnection, saveDocument, seedInitialDataIfEmpty, collections } from './lib/firebaseSync';
 
@@ -473,8 +474,15 @@ export default function App() {
   const filteredCandidates = tenantFilter<Candidate>(candidates);
 
   return (
-    <div className="flex bg-slate-950 font-sans min-h-screen text-slate-100 antialiased selection:bg-emerald-500 selection:text-slate-950">
+    <div className="flex bg-slate-950 font-sans min-h-screen text-slate-100 antialiased selection:bg-emerald-500 selection:text-slate-950 relative">
       
+      {/* Mobile Bottom Navigation Bar */}
+      <MobileBottomNav 
+        currentView={currentView}
+        onNavigate={setCurrentView}
+        onOpenSidebar={() => setIsSidebarOpen(true)}
+      />
+
       {/* Sidebar Control Deck */}
       <Sidebar 
         currentView={currentView}
@@ -503,8 +511,8 @@ export default function App() {
           onNavigate={setCurrentView}
         />
 
-        {/* Main Panel View Router */}
-        <main className="flex-1 p-4 sm:p-8 max-w-7xl w-full mx-auto space-y-6">
+        {/* Main Panel View Router with Mobile Safe Padding */}
+        <main className="flex-1 p-4 sm:p-8 max-w-7xl w-full mx-auto space-y-6 pb-24 lg:pb-8">
         
         {currentView === 'Dashboard' && (
           <DashboardView 
@@ -648,6 +656,60 @@ export default function App() {
         )}
 
       </main>
+
+        {/* Mobile Bottom Quick Navigation Bar */}
+        <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 backdrop-blur-xl border-t border-slate-800/90 px-3 py-2 flex items-center justify-around text-slate-400 shadow-2xl">
+          <button
+            onClick={() => setCurrentView('Dashboard')}
+            className={`flex flex-col items-center gap-1 text-[10px] font-bold transition cursor-pointer ${
+              currentView === 'Dashboard' ? 'text-emerald-400 font-extrabold' : 'hover:text-slate-200'
+            }`}
+          >
+            <LayoutDashboard size={18} />
+            <span>Home</span>
+          </button>
+
+          <button
+            onClick={() => setCurrentView('SikuYaChama')}
+            className={`flex flex-col items-center gap-1 text-[10px] font-bold transition relative cursor-pointer ${
+              currentView === 'SikuYaChama' ? 'text-emerald-400 font-extrabold' : 'hover:text-slate-200'
+            }`}
+          >
+            <span className="relative">
+              <Video size={18} />
+              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+            </span>
+            <span>Meza</span>
+          </button>
+
+          <button
+            onClick={() => setCurrentView('MultiBucket')}
+            className={`flex flex-col items-center gap-1 text-[10px] font-bold transition cursor-pointer ${
+              currentView === 'MultiBucket' ? 'text-emerald-400 font-extrabold' : 'hover:text-slate-200'
+            }`}
+          >
+            <Wallet size={18} />
+            <span>Ledger</span>
+          </button>
+
+          <button
+            onClick={() => setCurrentView('Communication')}
+            className={`flex flex-col items-center gap-1 text-[10px] font-bold transition cursor-pointer ${
+              currentView === 'Communication' ? 'text-emerald-400 font-extrabold' : 'hover:text-slate-200'
+            }`}
+          >
+            <Mail size={18} />
+            <span>Chat</span>
+          </button>
+
+          <button
+            onClick={() => setIsSidebarOpen(true)}
+            className="flex flex-col items-center gap-1 text-[10px] font-bold hover:text-slate-200 transition cursor-pointer"
+          >
+            <Menu size={18} />
+            <span>Menu</span>
+          </button>
+        </nav>
       </div>
 
       {/* Printing Modal */}
