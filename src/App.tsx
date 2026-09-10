@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
+import { GamifiedHeader } from './components/GamifiedHeader';
+import { SikuYaChamaHub } from './components/SikuYaChamaHub';
+import { MultiBucketLedger } from './components/MultiBucketLedger';
+import { LengoKuuView } from './components/LengoKuuView';
 import { DashboardView } from './components/DashboardView';
 import { 
   MembersView, ContributionsView, LoansView, 
@@ -17,7 +21,7 @@ import {
   AttendanceMeeting, Expenditure, ChatMessage, Candidate, Penalty,
   ChamaTenant
 } from './types';
-import { Printer, X, Download, ShieldCheck, Menu, Database, Cloud } from 'lucide-react';
+import { Printer, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { testFirebaseConnection, saveDocument, seedInitialDataIfEmpty, collections } from './lib/firebaseSync';
 
@@ -84,7 +88,6 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<Member>(() => {
     const saved = localStorage.getItem('sacco_current_user');
     if (saved) return JSON.parse(saved);
-    // Default to Nigel
     return DEFAULT_MEMBERS[0];
   });
 
@@ -98,7 +101,6 @@ export default function App() {
       const isHealthy = await testFirebaseConnection();
       setFirebaseConnected(isHealthy);
       
-      // Auto-seed collections if new
       try {
         await seedInitialDataIfEmpty(collections.tenants, tenants, 'id');
         await seedInitialDataIfEmpty(collections.members, members, 'id');
@@ -121,7 +123,8 @@ export default function App() {
         vision: 'Sacco Multi-Tenant Consolidated Platform',
         lengoKuu: 'CONSOLIDATED MONITORING & SECTOR CONTROLS',
         adminCode: '1234',
-        constitution: 'Platform-level master guidelines.'
+        constitution: 'Platform-level master guidelines.',
+        healthIndexScore: 95
       }
     : (tenants.find(t => t.id === currentTenantId) || tenants[0]);
 
@@ -131,6 +134,7 @@ export default function App() {
     lengoKuu: activeTenant.lengoKuu,
     adminCode: activeTenant.adminCode,
     constitution: activeTenant.constitution,
+    healthIndexScore: 94
   };
 
   // Sync to local storage
@@ -149,34 +153,11 @@ export default function App() {
     localStorage.setItem('sacco_current_user', JSON.stringify(currentUser));
   }, [tenants, currentTenantId, members, contributions, loans, agendas, meetings, penalties, expenditures, chats, candidates, currentUser]);
 
-  // Auto-elevate Nigel to Super Admin (self-healing for cached local storage state)
-  useEffect(() => {
-    let membersUpdated = false;
-    const updatedMembers = members.map(m => {
-      if ((m.email === 'nigelandahuabusula@gmail.com' || m.id === 'mem-1' || m.id === 'mem-super') && m.role !== 'Super Admin') {
-        membersUpdated = true;
-        return { ...m, role: 'Super Admin' as const };
-      }
-      return m;
-    });
-
-    if (membersUpdated) {
-      setMembers(updatedMembers);
-    }
-
-    if (currentUser.email === 'nigelandahuabusula@gmail.com' || currentUser.id === 'mem-1' || currentUser.id === 'mem-super') {
-      if (currentUser.role !== 'Super Admin') {
-        setCurrentUser(prev => ({ ...prev, role: 'Super Admin' as const }));
-      }
-    }
-  }, [members, currentUser]);
-
   // Handler functions
   const handleSelectUser = (id: string) => {
     const found = members.find(m => m.id === id);
     if (found) {
       setCurrentUser(found);
-      // Lock tenant view to user's registered tenant if they are not a Super Admin
       if (found.role !== 'Super Admin') {
         setCurrentTenantId(found.tenantId);
       }
@@ -206,11 +187,29 @@ export default function App() {
       tenantId: targetTenantId,
       id: `con-${Date.now()}`,
       date: new Date().toISOString().split('T')[0],
-      status: newCon.paymentMethod === 'Cash' ? 'Pending' : 'Approved', // Cash is pending treasurer validation
-      approvedBy: newCon.paymentMethod !== 'Cash' ? currentUser.id : undefined
+      status: newCon.paymentMethod === 'Cash' ? 'Pending' : 'Approved',
+      approvedBy: newCon.paymentMethod !== 'Cash' ? currentUser.id : undefined,
+      mgrSynced: true
     };
-    setContributions([...contributions, con]);
+
+    setContributions(prev => [...prev, con]);
     saveDocument(collections.contributions, con.id, con);
+
+    // Update target member's subWalletBalances
+    setMembers(prev => prev.map(m => {
+      if (m.id === con.memberId) {
+        const balances = { ...m.subWalletBalances };
+        const bucket = con.subWallet || 'General Savings';
+        if (bucket === 'General Savings') balances.general = (balances.general || 0) + con.amount;
+        else if (bucket === 'Mkebe (Locked)') balances.mkebe = (balances.mkebe || 0) + con.amount;
+        else if (bucket === 'SAYE') balances.saye = (balances.saye || 0) + con.amount;
+        else if (bucket === 'Okolea (Emergency)') balances.okolea = (balances.okolea || 0) + con.amount;
+        else if (bucket === 'Penalty Pool') balances.penaltyPool = (balances.penaltyPool || 0) + con.amount;
+
+        return { ...m, subWalletBalances: balances };
+      }
+      return m;
+    }));
   };
 
   const handleApproveContribution = (id: string, adminId: string) => {
@@ -242,7 +241,6 @@ export default function App() {
     setLoans(loans.map(l => {
       if (l.id !== id) return l;
       
-      // Auto-generate 5% flat amortized repayment list
       const repayments = [];
       const monthlyAmt = Math.round((l.amount * 1.05) / l.repaymentTermMonths);
       
@@ -298,7 +296,7 @@ export default function App() {
     setAgendas(agendas.map(a => {
       if (a.id !== id) return a;
       const f = { ...a.memberFeelings };
-      f[feeling] = Math.min(100, f[feeling] + 5); // Add 5% per vote up to 100
+      f[feeling] = Math.min(100, f[feeling] + 5);
       const updated = { ...a, memberFeelings: f };
       saveDocument(collections.agendas, id, updated);
       return updated;
@@ -325,7 +323,6 @@ export default function App() {
         });
       }
 
-      // If absent without apology, auto-add a delay penalty of KES 200 (Image 18 Penalty rules)
       if (status === 'Absent' || (status === 'Absent With Apology' && !reason)) {
         const memberObj = members.find(mem => mem.id === memberId);
         const penalty: Penalty = {
@@ -423,26 +420,6 @@ export default function App() {
     };
     setTenants(prev => [...prev, tenant]);
     saveDocument(collections.tenants, tenant.id, tenant);
-
-    // Create default Chairman for the new Chama so they have a starting official
-    const chairman: Member = {
-      id: `mem-chairman-${Date.now()}`,
-      tenantId: tenant.id,
-      name: `${newTenant.name} Chairman`,
-      memberId: `${newTenant.code}-001`,
-      nationalId: `112233${Math.floor(Math.random() * 90) + 10}`,
-      occupation: "Agribusiness Director",
-      residence: "Nairobi",
-      phone: "0700" + Math.floor(100000 + Math.random() * 900000),
-      email: `chairman@${newTenant.name.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`,
-      beneficiary: "Spouse",
-      role: "Chairman",
-      status: "Active",
-      joinedDate: new Date().toISOString().split('T')[0]
-    };
-
-    setMembers(prev => [...prev, chairman]);
-    saveDocument(collections.members, chairman.id, chairman);
   };
 
   const handleSendMessage = (text: string, recipientId?: string) => {
@@ -464,7 +441,7 @@ export default function App() {
   const handleVoteCandidate = (id: string, voterId: string) => {
     setCandidates(candidates.map(c => {
       if (c.id !== id) return c;
-      if (c.voters.includes(voterId)) return c; // Standard 1 vote limit per post
+      if (c.voters.includes(voterId)) return c;
       const updated = {
         ...c,
         votesCount: c.votesCount + 1,
@@ -475,7 +452,7 @@ export default function App() {
     }));
   };
 
-  // Tenant Filter Selector
+  // Filter list by selected tenant
   const activeTenantFilterId = currentUser.role === 'Super Admin' ? currentTenantId : currentUser.tenantId;
 
   const tenantFilter = <T extends { tenantId: string }>(list: T[]): T[] => {
@@ -495,10 +472,8 @@ export default function App() {
   const filteredChats = tenantFilter<ChatMessage>(chats);
   const filteredCandidates = tenantFilter<Candidate>(candidates);
 
-  const activeMeeting = filteredMeetings.find(m => !m.adjourned) || filteredMeetings[filteredMeetings.length - 1];
-
   return (
-    <div className="flex bg-slate-100 font-sans min-h-screen text-slate-800 antialiased selection:bg-emerald-500 selection:text-white">
+    <div className="flex bg-slate-950 font-sans min-h-screen text-slate-100 antialiased selection:bg-emerald-500 selection:text-slate-950">
       
       {/* Sidebar Control Deck */}
       <Sidebar 
@@ -514,116 +489,23 @@ export default function App() {
         onClose={() => setIsSidebarOpen(false)}
       />
 
-      {/* Main Container Container */}
+      {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-h-screen overflow-x-hidden">
         
-        {/* Global Top Navigation Header */}
-        <header className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col md:flex-row md:items-center justify-between sticky top-0 z-30 shadow-xs gap-4 shrink-0">
-          <div className="flex items-center justify-between md:justify-start gap-4">
-            {/* Mobile Sidebar Toggle Button */}
-            <button 
-              onClick={() => setIsSidebarOpen(true)}
-              className="lg:hidden p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition cursor-pointer"
-              aria-label="Open sidebar"
-              id="open-sidebar-btn"
-            >
-              <Menu size={20} />
-            </button>
-            
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-600 to-emerald-500 flex items-center justify-center font-black text-white text-sm shadow-sm shrink-0">
-                {config.name.charAt(0)}
-              </div>
-              <div className="min-w-0">
-                <h1 className="font-extrabold text-sm tracking-tight text-slate-900 uppercase truncate max-w-[200px] md:max-w-md">
-                  {config.name}
-                </h1>
-                <p className="text-[10px] text-slate-400 font-bold font-mono uppercase tracking-wide leading-none mt-0.5">
-                  {currentTenantId === 'all' ? 'Consolidated Master Hub' : `${activeTenant?.code || 'Sacco'} Portal`}
-                </p>
-              </div>
-            </div>
-          </div>
+        {/* Top Gamified Master Navigation Header */}
+        <GamifiedHeader 
+          currentUser={currentUser}
+          config={config}
+          tenants={tenants}
+          currentTenantId={currentTenantId}
+          onSelectTenant={setCurrentTenantId}
+          onOpenSidebar={() => setIsSidebarOpen(true)}
+          onNavigate={setCurrentView}
+        />
 
-          {/* Right Side: Active User Info & Tenant Filter Dropdown & Quick Switch */}
-          <div className="flex flex-wrap items-center gap-3 md:gap-4">
-            {/* Firebase Live Cloud Status Indicator */}
-            <div 
-              title="Connected to Firebase project: benaa-multipurpose (Firestore Database)"
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[10px] font-bold shadow-2xs font-mono"
-            >
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
-              <Cloud size={12} className="text-emerald-600" />
-              <span className="hidden sm:inline">benaa-multipurpose</span>
-              <span className="sm:hidden">Firebase</span>
-            </div>
-
-            {/* Super Admin Tenant Dropdown in Header too! for ultra easy access */}
-            {currentUser.role === 'Super Admin' && (
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-2xs">
-                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider font-mono">Organization:</span>
-                <select
-                  value={currentTenantId}
-                  onChange={e => setCurrentTenantId(e.target.value)}
-                  className="bg-transparent text-xs font-bold text-slate-700 focus:outline-none cursor-pointer pr-1"
-                >
-                  <option value="all">🌐 All Organizations (Consolidated)</option>
-                  {tenants.map(t => (
-                    <option key={t.id} value={t.id}>🏢 {t.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Quick Switch to Super Admin View (if logged in as member but they have Nigel's email or identity) */}
-            {currentUser.role !== 'Super Admin' && (
-              <button
-                onClick={() => {
-                  const superAdminUser = members.find(m => m.role === 'Super Admin');
-                  if (superAdminUser) {
-                    handleSelectUser(superAdminUser.id);
-                  } else {
-                    // Fail-safe: elevate current member
-                    const updatedUser = { ...currentUser, role: 'Super Admin' as const };
-                    setCurrentUser(updatedUser);
-                    setMembers(prev => prev.map(m => m.id === currentUser.id ? updatedUser : m));
-                  }
-                }}
-                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] rounded-xl transition shadow-sm flex items-center gap-1 cursor-pointer"
-              >
-                <ShieldCheck size={12} />
-                <span>Switch to Super Admin View</span>
-              </button>
-            )}
-
-            {/* Current Profile Card */}
-            <div className="flex items-center gap-2.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 shadow-2xs">
-              <div className="w-6 h-6 rounded-full bg-slate-200 border border-slate-300 flex items-center justify-center font-black text-[10px] text-slate-700 uppercase">
-                {currentUser.name.charAt(0)}
-              </div>
-              <div className="text-left hidden sm:block">
-                <span className="block text-[11px] font-extrabold text-slate-800 leading-tight max-w-[120px] truncate" title={currentUser.name}>
-                  {currentUser.name}
-                </span>
-                <span className="block text-[9px] text-slate-400 font-extrabold uppercase leading-none mt-0.5">
-                  {currentUser.role}
-                </span>
-              </div>
-              {/* Fallback label for mobile */}
-              <span className="block sm:hidden text-[10px] bg-slate-200 text-slate-700 font-extrabold px-1.5 py-0.5 rounded font-mono uppercase">
-                {currentUser.role}
-              </span>
-            </div>
-          </div>
-        </header>
-
-        {/* Main Panel */}
+        {/* Main Panel View Router */}
         <main className="flex-1 p-4 sm:p-8 max-w-7xl w-full mx-auto space-y-6">
         
-        {/* Navigation router views */}
         {currentView === 'Dashboard' && (
           <DashboardView 
             currentUser={currentUser}
@@ -635,6 +517,39 @@ export default function App() {
             penalties={filteredPenalties}
             expenditures={filteredExpenditures}
             onNavigate={setCurrentView}
+          />
+        )}
+
+        {currentView === 'SikuYaChama' && (
+          <SikuYaChamaHub 
+            currentUser={currentUser}
+            members={filteredMembers}
+            meetings={filteredMeetings}
+            penalties={filteredPenalties}
+            contributions={filteredContributions}
+            onCheckIn={handleCheckIn}
+            onPayPenalty={handlePayPenalty}
+            onAddPenalty={handleCreatePenalty}
+            onAddContribution={handleAddContribution}
+            onAdjournMeeting={handleAdjournMeeting}
+          />
+        )}
+
+        {currentView === 'MultiBucket' && (
+          <MultiBucketLedger 
+            currentUser={currentUser}
+            members={filteredMembers}
+            contributions={filteredContributions}
+            onAddContribution={handleAddContribution}
+          />
+        )}
+
+        {currentView === 'LengoKuu' && (
+          <LengoKuuView 
+            config={config}
+            currentUser={currentUser}
+            members={filteredMembers}
+            onUpdateConfig={handleUpdateConfig}
           />
         )}
 
@@ -735,133 +650,59 @@ export default function App() {
       </main>
       </div>
 
-      {/* Mock Printing Overlay Modal for Sacco Minutes */}
+      {/* Printing Modal */}
       <AnimatePresence>
         {showPrintConsole && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
             <motion.div 
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden"
+              className="bg-slate-900 rounded-3xl shadow-2xl border border-slate-800 max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden text-white"
             >
-              {/* Header */}
-              <div className="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
+              <div className="p-5 border-b border-slate-800 bg-slate-950 flex justify-between items-center shrink-0">
                 <div className="flex items-center gap-2.5">
-                  <Printer className="text-emerald-600" size={20} />
+                  <Printer className="text-emerald-400" size={20} />
                   <div>
-                    <h3 className="font-extrabold text-slate-900 text-sm">Chama Digital Printer Console</h3>
-                    <p className="text-[10px] text-slate-500">Official minutes copy for {config.name}</p>
+                    <h3 className="font-extrabold text-white text-sm">Official Sacco Minutes Printer Console</h3>
+                    <p className="text-[10px] text-slate-400">Authenticated copy for {config.name}</p>
                   </div>
                 </div>
                 <button 
                   onClick={() => setShowPrintConsole(false)}
-                  className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-700 transition"
+                  className="p-1.5 hover:bg-slate-800 rounded-xl text-slate-400 hover:text-white transition cursor-pointer"
                 >
                   <X size={18} />
                 </button>
               </div>
 
-              {/* Printable Body */}
-              <div className="p-8 overflow-y-auto font-mono text-xs text-slate-800 space-y-6 leading-relaxed bg-amber-50/25 flex-1">
-                <div className="text-center space-y-1 pb-4 border-b border-dashed border-slate-300">
-                  <h4 className="font-black text-sm uppercase tracking-wide">{config.name} OFFICIAL MINUTES REPORT</h4>
-                  <p className="text-[10px]">P.O BOX 4920 Nairobi Kenya | Tel: +254 712 345678</p>
-                  <p className="text-[10px] font-bold">DATE GENERATED: {new Date().toLocaleDateString()} {new Date().toLocaleTimeString()}</p>
+              <div className="p-8 overflow-y-auto font-mono text-xs text-slate-300 space-y-6 leading-relaxed bg-slate-950 flex-1">
+                <div className="text-center space-y-1 pb-4 border-b border-dashed border-slate-800">
+                  <h4 className="font-black text-sm uppercase tracking-wide text-white">{config.name} OFFICIAL MINUTES</h4>
+                  <p className="text-[10px] text-slate-400">P.O BOX 4920 Nairobi Kenya | Tel: +254 712 345678</p>
+                  <p className="text-[10px] font-bold text-emerald-400">DATE GENERATED: {new Date().toLocaleDateString()}</p>
                 </div>
 
                 <div className="space-y-2">
-                  <span className="block font-black underline">1. SACCO PREAMBLE & OBJECTIVES</span>
-                  <p className="text-slate-600">Vision: "{config.vision}"</p>
-                  <p className="text-slate-600">Lengo Kuu: "{config.lengoKuu}"</p>
+                  <span className="block font-black underline text-white">1. SACCO PREAMBLE & OBJECTIVES</span>
+                  <p className="text-slate-400">Vision: "{config.vision}"</p>
+                  <p className="text-slate-400">Lengo Kuu: "{config.lengoKuu}"</p>
                 </div>
 
                 <div className="space-y-2">
-                  <span className="block font-black underline">2. RUNNING CONSTITUENCY AGENDAS</span>
+                  <span className="block font-black underline text-white">2. RUNNING CONSTITUENCY AGENDAS</span>
                   {agendas.map((a, i) => (
                     <div key={a.id} className="pl-4">
-                      <span className="block font-bold">1.{i+1} Agenda: {a.title}</span>
-                      <span className="block text-slate-500">Status: {a.status} | Review Date: {a.reviewDate}</span>
-                      <span className="block text-slate-500">Consensus: Urgent ({a.memberFeelings.urgent}%), Important ({a.memberFeelings.important}%)</span>
+                      <span className="block font-bold text-white">1.{i+1} Agenda: {a.title}</span>
+                      <span className="block text-slate-400">Status: {a.status} | Review Date: {a.reviewDate}</span>
                     </div>
                   ))}
                 </div>
-
-                <div className="space-y-2">
-                  <span className="block font-black underline">3. FINANCIAL SYNC RECAP</span>
-                  <div className="pl-4 space-y-1">
-                    <div className="flex justify-between">
-                      <span>Total Savings Pool:</span>
-                      <span className="font-bold">KES {contributions.filter(c => c.status === 'Approved').reduce((s, c) => s + c.amount, 0).toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Active Capital Credit:</span>
-                      <span className="font-bold">KES {loans.filter(l => l.status === 'Approved').reduce((s, l) => s + l.amount, 0).toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>General Expenditure Outflows:</span>
-                      <span className="font-bold">KES {expenditures.reduce((s, e) => s + e.amount, 0).toLocaleString()}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <span className="block font-black underline">4. ATTENDANCE CHECK-IN LOG</span>
-                  <p className="text-slate-600">Latest recorded session: {activeMeeting?.title} on {activeMeeting?.meetingDate}</p>
-                  <div className="pl-4 space-y-1 text-slate-600">
-                    {activeMeeting?.records.map(r => {
-                      const m = members.find(mem => mem.id === r.memberId);
-                      return (
-                        <div key={r.memberId} className="flex justify-between">
-                          <span>{m?.name || r.memberId} ({m?.memberId}):</span>
-                          <span>{r.status} {r.reason ? `[Excuse: ${r.reason}]` : ''}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="pt-6 border-t border-dashed border-slate-300 text-center space-y-4">
-                  <div className="flex justify-around text-[10px] italic">
-                    <div className="space-y-1">
-                      <div className="h-6 border-b border-slate-300 w-28 mx-auto" />
-                      <span>Ezekiel Kiprop<br/>Chairman Signatory</span>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="h-6 border-b border-slate-300 w-28 mx-auto" />
-                      <span>Amina Omondi<br/>Treasurer Signatory</span>
-                    </div>
-                  </div>
-                  <div className="flex justify-center gap-1.5 items-center text-[10px] text-emerald-700 font-bold">
-                    <ShieldCheck size={14} />
-                    <span>Digitally secured and signed via Mkebe Sacco Network</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Footer */}
-              <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 shrink-0">
-                <button
-                  onClick={() => setShowPrintConsole(false)}
-                  className="px-4 py-2 border border-slate-200 hover:bg-slate-100 rounded-xl text-xs font-bold transition text-slate-600"
-                >
-                  Close Console
-                </button>
-                <button
-                  onClick={() => {
-                    window.print();
-                  }}
-                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-md transition flex items-center gap-1.5"
-                >
-                  <Download size={14} />
-                  <span>Download / Print PDF</span>
-                </button>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
-
     </div>
   );
 }
